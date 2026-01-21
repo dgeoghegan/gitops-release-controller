@@ -1,0 +1,48 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: "557690605702.dkr.ecr.us-east-1.amazonaws.com/versioned-app"
+  tag: ""            # immutable tag, e.g. v0.1.0
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+env: []
+# Example:
+# env:
+#   - name: APP_VERSION
+#     value: "v0.1.0"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+resources: {}
+
+ingress:
+  enabled: true
+  ingressClassName: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: "/healthz"
+  host: ""            # optional; if empty, creates host-less ingress (ALB DNS only)
+  paths:
+    - path: /
+      pathType: Prefix
+
+probes:
+  enabled: true
+  path: /healthz
+  port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+
+deployment:
+  revisionHistoryLimit: 2

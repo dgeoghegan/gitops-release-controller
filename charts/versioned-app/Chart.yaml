@@ -1,0 +1,6 @@
+apiVersion: v2
+name: versioned-app
+description: Minimal versioned-app deployment (Deployment/Service/Ingress) for GitOps MVP
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
