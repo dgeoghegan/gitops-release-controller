@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: versioned-app-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dgeoghegan/gitops-release-controller.git
+    targetRevision: main
+    path: charts/versioned-app
+    helm:
+      valueFiles:
+        - environments/prod/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: jb-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
