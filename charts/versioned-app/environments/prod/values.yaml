@@ -7,7 +7,7 @@ service:
   port: 80
   targetPort: 8080
 
-env: {}
+env: []
 
 # guardrail: explicit, tighter resources vs staging
 resources:

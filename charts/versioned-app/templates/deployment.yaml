@@ -25,10 +25,12 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
-          {{- if .Values.env }}
           env:
-            {{- toYaml .Values.env | nindent 12 }}
-          {{- end }}
+            - name: GIT_SHA
+              value: {{ .Values.image.tag | quote }}
+            {{- with .Values.env }}
+            {{- toYaml .| nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if .Values.probes.enabled }}
