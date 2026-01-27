@@ -1,0 +1,88 @@
+name: bump-dev-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to pin in dev (e.g. sha-abcdef123456)"
+        required: true
+        type: string
+
+  repository_dispatch:
+    types: [bump-dev-image]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  # TODO: replace these two with your exact values
+  DEV_VALUES_FILE: "charts/versioned-app/environments/dev/values.yaml"   # e.g. helm/versioned-app/values-dev.yaml
+  TAG_KEY_PATH: ".image.tag"      # e.g. .image.tag
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine image tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "value=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # repository_dispatch
+            echo "value=${{ github.event.client_payload.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          YQ_VERSION="v4.44.3"
+          curl -sSfL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Update dev pinned tag only
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f "${DEV_VALUES_FILE}" ]]; then
+            echo "Dev values file not found: ${DEV_VALUES_FILE}"
+            exit 1
+          fi
+
+          # Set TAG_KEY_PATH to IMAGE_TAG
+          # Example TAG_KEY_PATH: .image.tag
+          yq -i "${TAG_KEY_PATH} = strenv(IMAGE_TAG)" "${DEV_VALUES_FILE}"
+
+          echo "Updated ${DEV_VALUES_FILE} (${TAG_KEY_PATH}) to ${IMAGE_TAG}"
+          git diff -- "${DEV_VALUES_FILE}"
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "dev: bump image tag to ${{ steps.tag.outputs.value }}"
+          title: "dev: bump versioned-app image to ${{ steps.tag.outputs.value }}"
+          body: |
+            Updates dev desired state only.
+
+            - File: `${{ env.DEV_VALUES_FILE }}`
+            - Key: `${{ env.TAG_KEY_PATH }}`
+            - New tag: `${{ steps.tag.outputs.value }}`
+
+            Merge to deploy via Argo CD. Revert to roll back.
+          branch: "dev/bump-image-${{ steps.tag.outputs.value }}"
+          delete-branch: true
+          labels: |
+            dev
+            automation
