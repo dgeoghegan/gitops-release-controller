@@ -1,14 +1,10 @@
 image:
-  tag: "v0.1.1"
-
+  tag: "sha-419afeea91ac"
 replicaCount: 1
-
 service:
   port: 80
   targetPort: 8080
-
 env: []
-
 resources:
   requests:
     cpu: 25m
@@ -16,7 +12,6 @@ resources:
   limits:
     cpu: 100m
     memory: 128Mi
-
 ingress:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -25,9 +20,7 @@ ingress:
   paths:
     - path: "/"
       pathType: Prefix
-
 probes:
   enabled: true
   path: "/healthz"
   port: 8080
-
