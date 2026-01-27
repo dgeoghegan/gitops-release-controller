@@ -1,5 +1,5 @@
 image:
-  tag: "sha-419afeea91ac"
+  tag: "sha-59c8505388b8"
 replicaCount: 1
 service:
   port: 80
