@@ -25,10 +25,9 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
-          env:
             - name: GIT_SHA
-              value: {{ .Values.image.tag | quote }}
             {{- with .Values.env }}
+            env:
             {{- toYaml .| nindent 12 }}
             {{- end }}
           resources:
