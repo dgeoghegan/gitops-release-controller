@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from io import StringIO
 
 from ruamel.yaml import YAML
 
@@ -63,14 +64,13 @@ def ensure_mapping(root: Any, key: str) -> Dict[str, Any]:
 def ensure_env_list(root: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Helm values commonly store env as a list of {name: ..., value: ...}
-    This function ensures:
-      - root['env'] exists and is a list
-      - each item is a mapping with 'name'
+
+    For Cannon, env must already exist. We refuse to create or reshape it
+    to avoid YAML churn and unintended diffs.
     """
     env = root.get("env")
     if env is None:
-        root["env"] = []
-        env = root["env"]
+        die("Required key 'env' not found in values.yaml; refusing to add new keys for minimal-diff safety")
 
     if not isinstance(env, list):
         die("Expected 'env' to be a list in values.yaml")
@@ -80,6 +80,8 @@ def ensure_env_list(root: Dict[str, Any]) -> List[Dict[str, Any]]:
             die(f"Expected env[{i}] to be a mapping")
         if "name" not in item:
             die(f"Expected env[{i}] to have a 'name' key")
+        if "value" not in item:
+            die(f"env var '{item.get('name')}' exists but has no 'value' key; refusing to modify")
 
     return env  # type: ignore[return-value]
 
@@ -91,14 +93,17 @@ def get_env_entry(env_list: List[Dict[str, Any]], name: str) -> Optional[Dict[st
     return None
 
 
-def set_env_value(env_list: List[Dict[str, Any]], name: str, value: str) -> None:
+def set_env_value(env_list: List[Dict[str, Any]], name: str, value: str) -> bool:
     item = get_env_entry(env_list, name)
     if item is None:
         die(f"Required env var '{name}' not found in values file; refusing to add new keys for MVP safety")
-    # Preserve any additional keys on the item (e.g., valueFrom). For MVP, require 'value'.
     if "value" not in item:
         die(f"env var '{name}' exists but has no 'value' key; refusing to modify")
+    old = str(item.get("value", ""))
+    if old == value:
+        return False
     item["value"] = value
+    return True
 
 
 def main() -> int:
@@ -117,17 +122,23 @@ def main() -> int:
     if not values_file.exists():
         die(f"values file does not exist: {values_file}")
 
+    original_text = values_file.read_text(encoding="utf-8")
+
     yaml = YAML(typ="rt")  # round-trip
     yaml.preserve_quotes = True
+    yaml.width = 4096  # avoid reflow/wrapping diffs
 
-    data = yaml.load(values_file.read_text(encoding="utf-8"))
+    data = yaml.load(original_text)
     if not isinstance(data, dict):
         die("values.yaml did not parse to a mapping; cannot proceed safely")
 
     # Update image.tag
     image = ensure_mapping(data, "image")
     # Enforce exact key update only
-    image["tag"] = image_tag
+    changed = False
+    if str(image.get("tag", "")) != image_tag:
+        image["tag"] = image_tag
+        changed = True
 
     # Update env vars
     env_list = ensure_env_list(data)
@@ -140,21 +151,34 @@ def main() -> int:
     if kind == "sha":
         # sha tag: set GIT_SHA to <12>, set APP_VERSION to "unversioned" if not already that
         assert sha12 is not None
-        set_env_value(env_list, "GIT_SHA", sha12)
+        changed |= set_env_value(env_list, "GIT_SHA", sha12)
 
         app_version_entry = get_env_entry(env_list, "APP_VERSION")
         if app_version_entry is None:
             die("Required env var 'APP_VERSION' not found; refusing to proceed")
         current = str(app_version_entry.get("value", ""))
         if current != "unversioned":
-            set_env_value(env_list, "APP_VERSION", "unversioned")
+            changed |= set_env_value(env_list, "APP_VERSION", "unversioned")
     else:
         # semver: set APP_VERSION to vX.Y.Z, set GIT_SHA to empty string
-        set_env_value(env_list, "APP_VERSION", image_tag)
-        set_env_value(env_list, "GIT_SHA", "")
+        changed |= set_env_value(env_list, "APP_VERSION", image_tag)
+        changed |= set_env_value(env_list, "GIT_SHA", "")
 
-    yaml.dump(data, values_file.open("w", encoding="utf-8"))
+    if not changed:
+        print("No changes needed.")
+        return 0
+
+    buf = StringIO()
+    yaml.dump(data, buf)
+    new_text = buf.getvalue()
+
+    if new_text == original_text:
+        print("No textual changes after dump.")
+        return 0
+
+    values_file.write_text(new_text, encoding="utf-8")
     return 0
+
 
 
 if __name__ == "__main__":
