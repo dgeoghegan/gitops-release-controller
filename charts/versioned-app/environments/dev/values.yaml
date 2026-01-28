@@ -1,5 +1,5 @@
 image:
-  tag: "sha-ef0f1324f798"
+  tag: "sha-16391d20efc2"
 replicaCount: 1
 service:
   port: 80
@@ -10,7 +10,7 @@ env:
   - name: APP_VERSION
     value: unversioned
   - name: GIT_SHA
-    value: "sha-REPLACE_ME"
+    value: "16391d20efc2"
 resources:
   requests:
     cpu: 25m
