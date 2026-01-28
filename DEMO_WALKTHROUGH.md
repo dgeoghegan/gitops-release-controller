@@ -114,16 +114,20 @@ Image build and Git tagging are intentionally separate concerns.
 - The Cannon workflow only selects an existing image tag; it does not create tags in Git or ECR.
 
 #### 2A) Build and push an image (CI)
-Trigger the app build to push an image to ECR.
+The image build runs automatically on Git events. You normally do not manually dispatch it.
+
+Build triggers:
+- Push to `main` → builds and pushes a dev image (referenced by SHA)
+- Push of tag `v*` → builds and pushes a semver image (referenced by vX.Y.Z)
 
 Workflow:
 ```
 versioned-app/.github/workflows/build-and-push.yml
 ```
 
-Example (via GitHub UI):
-- Select branch (e.g. `main`)
-- Run workflow
+Example:
+- Push to main (or push a tag) in git CLI
+- Observe the workflow run in GitHub UI (https://github.com/dgeoghegan/versioned-app/actions/workflows/build-push.yaml)
 - Note the resulting image tag used for dev (e.g. `sha-<12>`)
 
 Evidence to capture later: workflow run URL.
@@ -145,17 +149,18 @@ Confirm the image exists before deploying to staging/prod:
 
 ---
 
-### 3) Deploy to dev by SHA (Cannon)
-Trigger the Cannon workflow.
+### 3) Deploy to dev (automatic bump)
+Dev deployments are automatic.
+
+Flow:
+- A push to `main` in `versioned-app` triggers the build-and-push workflow.
+- That workflow triggers `bump-dev-image` in `gitops-release-controller`.
+- `bump-dev-image` opens a PR updating the dev environment values file with the new image tag (SHA-based).
 
 Workflow:
 ```
-gitops-release-controller/.github/workflows/cannon-deploy.yaml
+gitops-release-controller/.github/workflows/bump-dev-image.yaml
 ```
-
-Inputs:
-- env: `dev`
-- image: `<GIT_SHA>` (or tag)
 
 Expected result:
 - A PR is opened modifying only:
@@ -164,7 +169,7 @@ charts/versioned-app/environments/dev/values.yaml
 ```
 Fields changed are limited to `image.tag` and related version fields.
 
-Merge the PR.
+Merge the PR. (https://github.com/dgeoghegan/gitops-release-controller/pulls)
 
 ---
 
@@ -188,7 +193,8 @@ version=<GIT_SHA or tag>
 ---
 
 ### 5) Deploy to staging by semver
-Repeat Cannon with:
+(Note: See 2B above for instructions on creating a semver tag)
+Run Cannon with:
 - env: `staging`
 - image: `<SEMVER_TAG>`
 
@@ -200,7 +206,9 @@ kubectl get ingress -n jb-staging
 curl http://<JB_STAGING_ALB_DNS>
 ```
 
-Expected `version=<SEMVER_TAG>`.
+app=versioned-app
+env=staging
+version=<SEMVER_TAG>`.
 
 ---
 
@@ -216,6 +224,10 @@ Verify:
 kubectl get ingress -n jb-prod
 curl http://<JB_PROD_ALB_DNS>
 ```
+
+app=versioned-app
+env=prod
+version=<SEMVER_TAG>`.
 
 ---
 
