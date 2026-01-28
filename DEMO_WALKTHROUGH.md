@@ -17,22 +17,82 @@ Ephemeral: EKS cluster, Argo CD install, ALBs, Kubernetes resources (can be dest
 
 ---
 
-## Prereqs
-- kubectl authenticated to the target cluster
-- GitHub account with permission to dispatch workflows and merge PRs
-- AWS credentials already configured (for infra path only)
+There are two distinct prerequisite layers depending on which walkthrough path you take.
 
 ---
 
-## Evidence targets (what you will observe)
-- A PR created by “Cannon” changing only one env values file
-- Argo CD shows Synced/Healthy after merge
-- App endpoint returns the expected version/tag
-- Git revert rolls back and is reflected by Argo and the endpoint
+## Fast Path Prerequisites (Infra Already Running)
+
+The FAST PATH in `DEMO_WALKTHROUGH.md` assumes the environment has already been bootstrapped using `gitops-infra`.
+
+Concretely, this means:
+
+- An EKS cluster exists
+- Argo CD is installed in the cluster
+- Argo CD is configured to pull from `gitops-release-controller`
+- Argo Applications for dev / staging / prod already exist
+- ALB ingress controller is installed and functional
+- Application endpoints (ALB DNS names) are reachable
+
+Access and permissions:
+
+- `kubectl` is configured to point at the cluster (correct kubeconfig / context)
+- You can port-forward to Argo CD:
+  ```bash
+  kubectl -n argocd port-forward svc/argocd-server 8080:443
+  ```
+- You have GitHub access to:
+  - Run `workflow_dispatch` workflows
+  - Merge PRs in `gitops-release-controller`
+- You can reach the application endpoints via curl
+
+Shorthand:
+> “The cluster has already been bootstrapped by gitops-infra, and kubectl is pointing at it.”
 
 ---
 
-## FAST PATH (infra already up)
+## Recreate Path Prerequisites (Running gitops-infra)
+
+The RECREATE PATH requires the ability to provision and bootstrap everything from scratch using `gitops-infra`.
+
+Required tools:
+
+- terraform
+- aws CLI
+- kubectl
+- git
+- bash-compatible shell
+
+Required access:
+
+- AWS credentials with permission to create:
+  - EKS
+  - VPC and networking resources
+  - ECR
+  - S3 (Terraform state)
+  - DynamoDB (Terraform locking)
+- GitHub access to clone all three repositories
+- Network access for Argo CD to pull from GitHub
+
+State backend (already defined in repo):
+
+- Terraform state stored in S3
+- Terraform locking via DynamoDB
+
+Shorthand:
+> “You can successfully run `terraform apply` and `scripts/bootstrap.sh` in gitops-infra.”
+
+---
+
+## Non-Prerequisites (Explicitly Out of Scope)
+
+- No manual kubectl apply of application manifests
+- No direct image promotion logic in CI
+- No requirement to understand internal Helm templates to run the demo
+
+
+
+---
 
 ### 1) Open Argo CD
 ```bash
