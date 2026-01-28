@@ -53,13 +53,25 @@ Argo CD `Application` manifests, one per environment, each pointing at the appro
 
 ## Deployment model
 
-1. A container image is built and pushed to ECR with an immutable tag (for example `v0.1.1`).
-2. The image tag is updated in the appropriate environment values file.
+1. A container image is built and pushed to ECR with an immutable tag (for example `v0.1.1` or `sha-<shortsha>`).
+2. A deployment is initiated by updating the pinned image tag in the appropriate environment values file.
 3. Argo CD detects the Git change and reconciles the cluster.
 4. Kubernetes performs a rolling update.
-5. Rollback is done by reverting the image tag in Git.
+5. Rollback is performed by reverting the Git change.
 
-The application version reported at runtime comes from the image and environment variables, not from Helm release metadata.
+The application version reported at runtime comes from the container image and injected environment variables, not from Helm release metadata.  
+For SHA-based deploys, the short Git SHA is injected. For semver deploys, the semantic version is injected and `GIT_SHA` is intentionally left empty.
+
+### Deployment selection (“Cannon”)
+
+Deployments are initiated via a GitHub Actions workflow (“Cannon”) that acts as an explicit deployment selector.
+
+Cannon:
+- Accepts a target environment and an image tag
+- Validates tag format (dev allows SHA or semver; staging and prod require semver)
+- Opens a pull request that updates only the pinned image tag (and related version fields) in the corresponding values file
+
+Cannon does not interact with the Kubernetes cluster. Argo CD remains the sole reconciler of runtime state.
 
 ## Environment differences
 
@@ -97,9 +109,10 @@ These are intentionally omitted to keep the demo focused and legible.
 
 ## Destroy / recreate expectations
 
-This repository assumes the underlying cluster and Argo CD installation may be destroyed and recreated at any time.
+This repository assumes the underlying EKS cluster and Argo CD installation may be destroyed and recreated at any time.
 
-No manual cleanup or hidden state should be required beyond the initial bootstrap.
+The only required post-recreate step is re-applying the initial Argo CD bootstrap that points at this repository.  
+All application state is derived from Git; no manual reconciliation or cleanup is expected.
 
 ## Why this exists
 
