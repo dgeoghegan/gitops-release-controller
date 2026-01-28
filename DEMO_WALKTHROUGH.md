@@ -1,0 +1,214 @@
+# DEMO_WALKTHROUGH.md
+Reviewer-grade validation of a minimal GitOps deployment workflow (10–15 minutes).
+
+Repos:
+- App: https://github.com/dgeoghegan/versioned-app
+- Infra: https://github.com/dgeoghegan/gitops-infra
+- GitOps controller: https://github.com/dgeoghegan/gitops-release-controller
+
+Region: us-east-1  
+GitOps rule: Git is source of truth. Argo CD reconciles. CI never applies manifests.
+
+---
+
+## What is durable vs ephemeral
+Durable: ECR images, S3 Terraform state, DynamoDB lock table.  
+Ephemeral: EKS cluster, Argo CD install, ALBs, Kubernetes resources (can be destroyed and recreated).
+
+---
+
+## Prereqs
+- kubectl authenticated to the target cluster
+- GitHub account with permission to dispatch workflows and merge PRs
+- AWS credentials already configured (for infra path only)
+
+---
+
+## Evidence targets (what you will observe)
+- A PR created by “Cannon” changing only one env values file
+- Argo CD shows Synced/Healthy after merge
+- App endpoint returns the expected version/tag
+- Git revert rolls back and is reflected by Argo and the endpoint
+
+---
+
+## FAST PATH (infra already up)
+
+### 1) Open Argo CD
+```bash
+kubectl -n argocd port-forward svc/argocd-server 8080:443
+```
+Open http://localhost:8080  
+Login with the password printed by `gitops-infra/scripts/bootstrap.sh`.
+
+Confirm Applications for dev/staging/prod are present and Healthy.
+
+---
+
+### 2) Build and tag an image (versioned-app)
+
+Image build and Git tagging are intentionally separate concerns.
+
+- CI builds and pushes images to ECR.
+- Semantic version tags are created explicitly in Git.
+- The Cannon workflow only selects an existing image tag; it does not create tags in Git or ECR.
+
+#### 2A) Build and push an image (CI)
+Trigger the app build to push an image to ECR.
+
+Workflow:
+```
+versioned-app/.github/workflows/build-and-push.yml
+```
+
+Example (via GitHub UI):
+- Select branch (e.g. `main`)
+- Run workflow
+- Note the resulting image tag used for dev (e.g. `sha-<12>`)
+
+Evidence to capture later: workflow run URL.
+
+#### 2B) Create a semver tag (for staging/prod)
+Create and push a Git tag pointing at the desired commit.
+
+```bash
+git clone https://github.com/dgeoghegan/versioned-app
+cd versioned-app
+git fetch origin --tags
+git tag vX.Y.Z <COMMIT_SHA>
+git push origin vX.Y.Z
+```
+
+Confirm the image exists before deploying to staging/prod:
+- Verify the build workflow has run for tag `vX.Y.Z`, and
+- Verify the image `vX.Y.Z` exists in ECR.
+
+---
+
+### 3) Deploy to dev by SHA (Cannon)
+Trigger the Cannon workflow.
+
+Workflow:
+```
+gitops-release-controller/.github/workflows/cannon-deploy.yaml
+```
+
+Inputs:
+- env: `dev`
+- image: `<GIT_SHA>` (or tag)
+
+Expected result:
+- A PR is opened modifying only:
+```
+charts/versioned-app/environments/dev/values.yaml
+```
+Fields changed are limited to `image.tag` and related version fields.
+
+Merge the PR.
+
+---
+
+### 4) Observe reconciliation (dev)
+In Argo CD:
+- Application `versioned-app-dev` transitions to Synced/Healthy.
+
+Fetch the endpoint:
+```bash
+kubectl get ingress -n jb-dev
+curl http://<JB_DEV_ALB_DNS>
+```
+
+Expected response:
+```
+app=versioned-app
+env=dev
+version=<GIT_SHA or tag>
+```
+
+---
+
+### 5) Deploy to staging by semver
+Repeat Cannon with:
+- env: `staging`
+- image: `<SEMVER_TAG>`
+
+Merge the PR.
+
+Verify:
+```bash
+kubectl get ingress -n jb-staging
+curl http://<JB_STAGING_ALB_DNS>
+```
+
+Expected `version=<SEMVER_TAG>`.
+
+---
+
+### 6) Deploy to prod by semver
+Repeat Cannon with:
+- env: `prod`
+- image: `<SEMVER_TAG>`
+
+Merge the PR.
+
+Verify:
+```bash
+kubectl get ingress -n jb-prod
+curl http://<JB_PROD_ALB_DNS>
+```
+
+---
+
+### 7) Rollback by Git revert
+In `gitops-release-controller`, revert the prod PR commit:
+```bash
+git revert <PROD_DEPLOY_COMMIT_SHA>
+git push origin main
+```
+
+Observe in Argo CD:
+- prod app reconciles back to the previous version.
+
+Verify endpoint reflects the rollback:
+```bash
+curl http://<JB_PROD_ALB_DNS>
+```
+
+---
+
+## RECREATE PATH (optional, brief)
+
+### 1) Destroy runtime resources
+From `gitops-infra`:
+```bash
+scripts/teardown.sh
+```
+
+### 2) Recreate artifacts + infra
+```bash
+cd terraform/artifacts
+terraform apply
+
+cd ../infrastructure
+terraform apply
+```
+
+State backend:
+- S3 bucket: `dgeoghegan-tfstate-us-east-1`
+- DynamoDB table: `terraform-locks`
+
+### 3) Bootstrap Argo CD
+```bash
+scripts/bootstrap.sh
+```
+Note the printed Argo admin password.
+
+Return to FAST PATH step 1.
+
+---
+
+## Notes for reviewers
+- CI builds images only; it never applies Kubernetes manifests.
+- All environment changes occur via Git PRs.
+- Argo CD is the sole reconciler.
+- Rollback is a Git operation.
