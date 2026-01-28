@@ -1,0 +1,115 @@
+name: Cannon Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      image_tag:
+        description: 'Image tag to deploy (dev: sha-<12> or vX.Y.Z; staging/prod: vX.Y.Z only)'
+        required: true
+        type: string
+      reason:
+        description: "Optional reason for this deployment (included in PR body)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: cannon-deploy-${{ github.ref }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  cannon:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for deterministic branching)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          env="${{ inputs.environment }}"
+          tag="${{ inputs.image_tag }}"
+
+          sha_re='^sha-[0-9a-f]{12}$'
+          semver_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ "$env" == "dev" ]]; then
+            if ! [[ "$tag" =~ $sha_re || "$tag" =~ $semver_re ]]; then
+              echo "Invalid image_tag for dev. Allowed: sha-<12 hex> OR vX.Y.Z"
+              echo "Got: $tag"
+              exit 1
+            fi
+          else
+            if ! [[ "$tag" =~ $semver_re ]]; then
+              echo "Invalid image_tag for $env. Allowed: vX.Y.Z only"
+              echo "Got: $tag"
+              exit 1
+            fi
+          fi
+
+      - name: Set target values file
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.environment }}" in
+            dev)     echo "values_file=./charts/versioned-app/environments/dev/values.yaml" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "values_file=./charts/versioned-app/environments/staging/values.yaml" >> "$GITHUB_OUTPUT" ;;
+            prod)    echo "values_file=./charts/versioned-app/environments/prod/values.yaml" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unknown environment"; exit 1 ;;
+          esac
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruamel.yaml
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ruamel.yaml==0.18.6"
+
+      - name: Update values file (only image.tag, env.GIT_SHA, env.APP_VERSION)
+        run: |
+          python ./scripts/cannon_update_values.py \
+            --environment "${{ inputs.environment }}" \
+            --image-tag "${{ inputs.image_tag }}" \
+            --values-file "${{ steps.target.outputs.values_file }}"
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          base: main
+          branch: cannon/${{ inputs.environment }}/${{ inputs.image_tag }}
+          delete-branch: false
+          committer: "cannon-bot <cannon-bot@users.noreply.github.com>"
+          author: "cannon-bot <cannon-bot@users.noreply.github.com>"
+          commit-message: "cannon: deploy ${{ inputs.image_tag }} to ${{ inputs.environment }}"
+          title: "cannon: deploy ${{ inputs.image_tag }} to ${{ inputs.environment }}"
+          body: |
+            Cannon deploy request.
+
+            Environment: `${{ inputs.environment }}`
+            Image tag: `${{ inputs.image_tag }}`
+            Values file changed: `${{ steps.target.outputs.values_file }}`
+
+            Reason:
+            ${{ inputs.reason }}
+          labels: |
+            cannon
+
