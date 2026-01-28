@@ -1,5 +1,5 @@
 image:
-  tag: "v0.1.4"
+  tag: "v0.1.5"
 
 replicaCount: 2
 
@@ -11,7 +11,7 @@ env:
 - name: APP_ENV
   value: prod
 - name: APP_VERSION
-  value: v0.1.4
+  value: v0.1.5
 - name: GIT_SHA
   value: ""
 
