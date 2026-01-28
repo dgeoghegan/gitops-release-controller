@@ -27,9 +27,9 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
             - name: GIT_SHA
             {{- with .Values.env }}
-            env:
-            {{- toYaml .| nindent 12 }}
-            {{- end }}
+          env:
+          {{- toYaml .| nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if .Values.probes.enabled }}
