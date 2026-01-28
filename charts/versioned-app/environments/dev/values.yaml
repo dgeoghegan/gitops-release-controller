@@ -10,7 +10,7 @@ env:
   - name: APP_VERSION
     value: unversioned
   - name: GIT_SHA
-    value: ""
+    value: "sha-REPLACE_ME"
 resources:
   requests:
     cpu: 25m

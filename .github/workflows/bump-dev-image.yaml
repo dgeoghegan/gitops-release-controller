@@ -68,6 +68,27 @@ jobs:
           echo "Updated ${DEV_VALUES_FILE} (${TAG_KEY_PATH}) to ${IMAGE_TAG}"
           git diff -- "${DEV_VALUES_FILE}"
 
+      - name: Update dev values (image tag + GIT_SHA)
+        shell: bash
+        env:
+          DEV_VALUES_FILE: charts/versioned-app/environments/dev/values.yaml
+          IMAGE_TAG: ${{ inputs.image_tag || github.event.client_payload.image_tag }}
+          GIT_SHA: ${{ inputs.git_sha || github.event.client_payload.git_sha }}
+        run: |
+          set -euo pipefail
+      
+          # install yq (mikefarah)
+          YQ_VERSION=v4.45.1
+          curl -sSLo /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          chmod +x /usr/local/bin/yq
+      
+          # 1) set image.tag
+          yq -i '.image.tag = strenv(IMAGE_TAG)' "${DEV_VALUES_FILE}"
+      
+          # 2) set env entry where name == GIT_SHA (value should be raw short sha)
+          yq -i '(.env[] | select(.name == "GIT_SHA") | .value) = strenv(GIT_SHA)' "${DEV_VALUES_FILE}"
+
+
       - name: Create PR
         uses: peter-evans/create-pull-request@v6
         with:
