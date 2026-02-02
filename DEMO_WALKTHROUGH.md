@@ -12,7 +12,7 @@ GitOps rule: Git is source of truth. Argo CD reconciles. CI never applies manife
 ---
 
 ## What is durable vs ephemeral
-Durable: ECR images, S3 Terraform state, DynamoDB lock table.  
+Durable: ECR images; Terraform state (typically S3 + DynamoDB lock table, provided by the reviewer).
 Ephemeral: EKS cluster, Argo CD install, ALBs, Kubernetes resources (can be destroyed and recreated).
 
 ---
@@ -73,11 +73,6 @@ Required access:
   - DynamoDB (Terraform locking)
 - GitHub access to clone all three repositories
 - Network access for Argo CD to pull from GitHub
-
-State backend (already defined in repo):
-
-- Terraform state stored in S3
-- Terraform locking via DynamoDB
 
 Shorthand:
 > “You can successfully run `terraform apply` and `scripts/bootstrap.sh` in gitops-infra.”
@@ -259,15 +254,17 @@ scripts/teardown.sh
 ### 2) Recreate artifacts + infra
 ```bash
 cd terraform/artifacts
+terraform init \
+  -backend-config=../../backend.hcl \
+  -backend-config="key=gitops-infra/artifacts/terraform.tfstate"
 terraform apply
 
 cd ../infrastructure
+terraform init \
+  -backend-config=../../backend.hcl \
+  -backend-config="key=gitops-infra/infrastructure/terraform.tfstate"
 terraform apply
 ```
-
-State backend:
-- S3 bucket: `dgeoghegan-tfstate-us-east-1`
-- DynamoDB table: `terraform-locks`
 
 ### 3) Bootstrap Argo CD
 ```bash
