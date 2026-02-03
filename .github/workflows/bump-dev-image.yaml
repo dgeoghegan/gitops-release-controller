@@ -16,9 +16,7 @@ permissions:
   pull-requests: write
 
 env:
-  # TODO: replace these two with your exact values
-  DEV_VALUES_FILE: "charts/versioned-app/environments/dev/values.yaml"   # e.g. helm/versioned-app/values-dev.yaml
-  TAG_KEY_PATH: ".image.tag"      # e.g. .image.tag
+  DEV_VALUES_FILE: "charts/versioned-app/environments/dev/values.yaml"
 
 jobs:
   bump:
@@ -30,64 +28,58 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            echo "value=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+            IMAGE_TAG="${{ inputs.image_tag }}"
           else
-            # repository_dispatch
-            echo "value=${{ github.event.client_payload.image_tag }}" >> "$GITHUB_OUTPUT"
+            IMAGE_TAG="${{ github.event.client_payload.image_tag }}"
           fi
+
+          if [[ -z "${IMAGE_TAG}" ]]; then
+            echo "ERROR: image_tag is required." >&2
+            exit 1
+          fi
+
+          echo "value=${IMAGE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved image_tag=${IMAGE_TAG}"
 
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install yq
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "scripts/requirements.txt"
+
+      - name: Install Python deps
         shell: bash
         run: |
           set -euo pipefail
-          YQ_VERSION="v4.44.3"
-          curl -sSfL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
-          chmod +x /usr/local/bin/yq
-          yq --version
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/requirements.txt
 
-      - name: Update dev pinned tag only
+      - name: Update dev values via cannon_update_values.py
         shell: bash
         env:
+          DEV_VALUES_FILE: ${{ env.DEV_VALUES_FILE }}
           IMAGE_TAG: ${{ steps.tag.outputs.value }}
         run: |
           set -euo pipefail
 
           if [[ ! -f "${DEV_VALUES_FILE}" ]]; then
-            echo "Dev values file not found: ${DEV_VALUES_FILE}"
+            echo "ERROR: Dev values file not found: ${DEV_VALUES_FILE}" >&2
             exit 1
           fi
 
-          # Set TAG_KEY_PATH to IMAGE_TAG
-          # Example TAG_KEY_PATH: .image.tag
-          yq -i "${TAG_KEY_PATH} = strenv(IMAGE_TAG)" "${DEV_VALUES_FILE}"
+          python scripts/cannon_update_values.py \
+            --environment dev \
+            --image-tag "${IMAGE_TAG}" \
+            --values-file "${DEV_VALUES_FILE}"
 
-          echo "Updated ${DEV_VALUES_FILE} (${TAG_KEY_PATH}) to ${IMAGE_TAG}"
+          echo "Diff:"
           git diff -- "${DEV_VALUES_FILE}"
-
-      - name: Update dev values (image tag + GIT_SHA)
-        shell: bash
-        env:
-          DEV_VALUES_FILE: charts/versioned-app/environments/dev/values.yaml
-          IMAGE_TAG: ${{ inputs.image_tag || github.event.client_payload.image_tag }}
-          GIT_SHA: ${{ inputs.git_sha || github.event.client_payload.git_sha }}
-        run: |
-          set -euo pipefail
-      
-          # install yq (mikefarah)
-          YQ_VERSION=v4.45.1
-          curl -sSLo /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
-          chmod +x /usr/local/bin/yq
-      
-          # 1) set image.tag
-          yq -i '.image.tag = strenv(IMAGE_TAG)' "${DEV_VALUES_FILE}"
-      
-          # 2) set env entry where name == GIT_SHA (value should be raw short sha)
-          yq -i '(.env[] | select(.name == "GIT_SHA") | .value) = strenv(GIT_SHA)' "${DEV_VALUES_FILE}"
-
 
       - name: Create PR
         uses: peter-evans/create-pull-request@v6
@@ -98,7 +90,7 @@ jobs:
             Updates dev desired state only.
 
             - File: `${{ env.DEV_VALUES_FILE }}`
-            - Key: `${{ env.TAG_KEY_PATH }}`
+            - Environment: `dev`
             - New tag: `${{ steps.tag.outputs.value }}`
 
             Merge to deploy via Argo CD. Revert to roll back.
