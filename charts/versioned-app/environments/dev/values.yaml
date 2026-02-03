@@ -24,8 +24,8 @@ ingress:
     alb.ingress.kubernetes.io/healthcheck-path: "/healthz"
   host: ""
   paths:
-  - path: "/"
-    pathType: Prefix
+    - path: "/"
+      pathType: Prefix
 probes:
   enabled: true
   path: "/healthz"
