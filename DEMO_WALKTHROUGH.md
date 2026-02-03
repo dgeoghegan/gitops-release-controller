@@ -187,7 +187,7 @@ version=<GIT_SHA or tag>
 
 #### Example: dev deploy and rollback (proof of life)
 
-This is example output from one successful dev deploy and rollback. Hostnames and tags will differ in other environments.
+This is example output from one successful dev deploy and rollback. Hostnames and tags will differ in other environments. After a bump or rollback is performed (PR merged), Argo CD must reconcile before the correct version is deployed. 
 
 Get the dev URL:
 
