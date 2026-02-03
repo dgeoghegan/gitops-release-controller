@@ -1,16 +1,16 @@
 image:
-  tag: "sha-de156d65132b"
+  tag: "sha-30fccc4c4176"
 replicaCount: 1
 service:
   port: 80
   targetPort: 8080
 env:
-  - name: APP_ENV
-    value: dev
-  - name: APP_VERSION
-    value: v0.1.5
-  - name: GIT_SHA
-    value: "de156d65132b"
+- name: APP_ENV
+  value: dev
+- name: APP_VERSION
+  value: unversioned
+- name: GIT_SHA
+  value: "30fccc4c4176"
 resources:
   requests:
     cpu: 25m
