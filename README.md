@@ -14,6 +14,22 @@ The intent is to show senior-level judgment around deploy mechanics, rollback sa
 
 No autoscaling, observability stack, canaries, or external integrations are included by design.
 
+## Where this fits
+
+This repository is the GitOps source of truth:
+- Argo CD Applications
+- Environment-specific Helm values
+- PR-based promotion and rollback workflows (“Cannon”)
+
+It assumes an existing Kubernetes cluster with Argo CD installed.
+
+**End-to-end demo start:**
+To provision the cluster and bootstrap Argo CD from scratch, start with
+[`gitops-infra`](https://github.com/dgeoghegan/gitops-infra).
+
+If infrastructure already exists, follow the FAST PATH in `DEMO_WALKTHROUGH.md`
+to validate deployment and rollback behavior.
+
 ## Repository structure
 
 ```
