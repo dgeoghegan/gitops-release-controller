@@ -184,6 +184,40 @@ app=versioned-app
 env=dev
 version=<GIT_SHA or tag>
 ```
+This is example output from one successful dev deploy and rollback. Hostnames and tags will differ in other environments.
+
+Get the dev URL:
+
+```bash
+kubectl -n jb-dev get ingress versioned-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo
+```
+
+Before deploy (existing version):
+
+```bash
+curl $(kubectl -n jb-dev get ingress versioned-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo)
+app=versioned-app
+env=dev
+version=sha-2b2316c5c0a4
+```
+
+After deploy (after merging the bump PR):
+
+```bash
+curl $(kubectl -n jb-dev get ingress versioned-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo)
+app=versioned-app
+env=dev
+version=sha-6c3f114715f
+```
+
+After rollback (after reverting the bump commit/PR and Argo reconciliation):
+
+```bash
+curl $(kubectl -n jb-dev get ingress versioned-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo)
+app=versioned-app
+env=dev
+version=sha-2b2316c5c0a4
+```
 
 ---
 
