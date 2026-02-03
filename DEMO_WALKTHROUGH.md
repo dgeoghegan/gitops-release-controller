@@ -11,6 +11,31 @@ GitOps rule: Git is source of truth. Argo CD reconciles. CI never applies manife
 
 ---
 
+## Review models (how to validate this project)
+
+This demo supports two review modes. Choose one:
+
+### Mode 1: Author-run demo (recommended for interviews)
+You do not need AWS credentials. I run the workflows and show:
+- the PR that changes desired state in Git
+- Argo CD reconciling to the new version
+- a rollback by Git revert
+
+### Mode 2: Fork-and-run (self-serve)
+You run the full demo in your own AWS account. This requires AWS permissions and may incur cost.
+
+Minimum setup assumptions:
+- You can run `terraform apply` and `gitops-infra/scripts/bootstrap.sh` successfully.
+- You can run GitHub Actions in your fork.
+- You can create the required GitHub Actions secrets/vars in your forked repos.
+
+Bounded repo-specific configuration you must supply:
+- `gitops-infra`: Terraform backend config values (S3 bucket + DynamoDB lock table) via `backend.hcl` / `-backend-config` as documented.
+- `versioned-app`: set `AWS_ROLE_TO_ASSUME` (repo variable) and `GITOPS_REPO_DISPATCH_TOKEN` (secret) so the workflow can dispatch into your `gitops-release-controller` repo.
+- `versioned-app`: set `TARGET_REPO` in the workflow to point at your fork (OWNER/REPO) if it is not already.
+
+---
+
 ## What is durable vs ephemeral
 Durable: ECR images; Terraform state (typically S3 + DynamoDB lock table, provided by the reviewer).
 Ephemeral: EKS cluster, Argo CD install, ALBs, Kubernetes resources (can be destroyed and recreated).
