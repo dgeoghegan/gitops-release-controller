@@ -320,6 +320,8 @@ From `gitops-infra`:
 scripts/teardown.sh
 ```
 
+Note: teardown is bounded best-effort and may time out waiting for AWS load balancer dependencies. If destroy fails due to dependencies, wait briefly and re-run teardown.
+
 ### 2) Recreate artifacts + infra
 ```bash
 cd terraform/artifacts
