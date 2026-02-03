@@ -149,7 +149,7 @@ Build triggers:
 
 Workflow:
 ```
-versioned-app/.github/workflows/build-and-push.yml
+versioned-app/.github/workflows/build-push.yaml
 ```
 
 Example:
@@ -180,7 +180,7 @@ Confirm the image exists before deploying to staging/prod:
 Dev deployments are automatic.
 
 Flow:
-- A push to `main` in `versioned-app` triggers the build-and-push workflow.
+- A push to `main` in `versioned-app` triggers the build-push workflow.
 - That workflow triggers `bump-dev-image` in `gitops-release-controller`.
 - `bump-dev-image` opens a PR updating the dev environment values file with the new image tag (SHA-based).
 
