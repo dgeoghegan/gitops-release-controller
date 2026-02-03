@@ -184,6 +184,9 @@ app=versioned-app
 env=dev
 version=<GIT_SHA or tag>
 ```
+
+#### Example: dev deploy and rollback (proof of life)
+
 This is example output from one successful dev deploy and rollback. Hostnames and tags will differ in other environments.
 
 Get the dev URL:
