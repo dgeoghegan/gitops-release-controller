@@ -1,5 +1,5 @@
 image:
-  tag: "sha-9d3cbc9cf779"
+  tag: "sha-2b2316c5c0a4"
 replicaCount: 1
 service:
   port: 80
@@ -10,7 +10,7 @@ env:
 - name: APP_VERSION
   value: unversioned
 - name: GIT_SHA
-  value: "9d3cbc9cf779"
+  value: "2b2316c5c0a4"
 resources:
   requests:
     cpu: 25m
@@ -24,8 +24,8 @@ ingress:
     alb.ingress.kubernetes.io/healthcheck-path: "/healthz"
   host: ""
   paths:
-  - path: "/"
-    pathType: Prefix
+    - path: "/"
+      pathType: Prefix
 probes:
   enabled: true
   path: "/healthz"
