@@ -93,8 +93,15 @@ Shorthand:
 ```bash
 kubectl -n argocd port-forward svc/argocd-server 8080:443
 ```
-Open http://localhost:8080  
-Login with the password printed by `gitops-infra/scripts/bootstrap.sh`.
+
+The port-forward maps local 8080 to Argo CD’s HTTPS port (443).
+
+Open https://localhost:8080  
+Login with the password printed by `gitops-infra/scripts/bootstrap.sh` or by executing this command:
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode; echo
+```
 
 Confirm Applications for dev/staging/prod are present and Healthy.
 
