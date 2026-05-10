@@ -1,141 +1,111 @@
-# GitOps Release Management Demo — Reviewer Walkthrough
+# GitOps Release Management
 
-## Section 0 — What this walkthrough is for
+Deployment is not an execution process. It is a state transition represented by a Git diff.
 
-This walkthrough is designed for **read-only inspection** by reviewers.
-
-You can validate the core claims of this demo in **3–5 minutes** without running anything or providing credentials. Execution is optional and documented separately.
-
-**Core claim:**  
-The only way this demo changes running application state is by merging a Git PR that modifies versioned configuration.
-
-There exists no documented or supported path to mutate runtime state other than a Git commit to this repository.
-
-The purpose is to show, concretely, how deploys and rollbacks are controlled via Git, not imperative actions.
-
-Read-only inspection validates control flow and rollback mechanics, but does not demonstrate reconciliation latency, failure modes, or Argo CD health semantics.
-
-Last validated: **2026-02-03** — PR #24 merged, Argo CD reconciled, application version observed  
-(anchored to the merge of https://github.com/dgeoghegan/gitops-release-controller/pull/24)
+This system implements a strict Git-to-cluster reconciliation loop where runtime state is a projection of repository state, not a mutable control surface. The enforced consequence is that Git is the only valid origin of state change.
 
 ---
 
-## Section 1 — Artifact map
+## System Invariants
 
-This demo consists of three repositories:
-
-- **versioned-app**  
-  https://github.com/dgeoghegan/versioned-app  
-  Minimal application that reports its version.
-
-- **gitops-release-controller**  
-  https://github.com/dgeoghegan/gitops-release-controller  
-  GitOps configuration, promotion logic, and reviewer artifacts.
-
-- **gitops-infra**  
-  https://github.com/dgeoghegan/gitops-infra  
-  Infrastructure used to host the demo. It defines the EKS cluster and Argo CD installation used to exercise these reconciliations, but is not required to understand the control mechanism demonstrated here.
-
-Everything below assumes you start in:
-
-**gitops-release-controller**
+- All environment state is declared exclusively in Git-tracked configuration under `charts/versioned-app/environments/`
+- Any change to cluster state must originate as a Git commit modifying declarative environment values
+- No supported path exists for direct runtime mutation via `kubectl`, `helm`, or ad-hoc cluster edits
+- Rollback is identical in mechanism to forward deployment: a Git revert producing a new desired state snapshot
 
 ---
 
-## Section 2 — The 60-Second Confirmation
+## Control Model
 
-### Primary confirmation
+```
 
-Open:  
-**PR #24 — gitops-release-controller**  
-https://github.com/dgeoghegan/gitops-release-controller/pull/24
+Git (desired state)
+↓
+Argo CD (continuous reconciliation)
+↓
+Kubernetes (projection of Git state)
 
-Look for:  
-In **Files changed**, a minimal diff changing `image.tag` in:
+```
 
-https://github.com/dgeoghegan/gitops-release-controller/blob/main/charts/versioned-app/environments/dev/values.yaml
+vs.
 
-This validates:  
-Deploys are controlled entirely by explicit Git diffs. The desired state of each environment is declared in Git.
+```
 
-At runtime, Argo CD observes this Git change and reconciles the environment to match it. There is no workflow, script, Make target, or documented process in this repository that invokes `kubectl`, `helm`, or `terraform apply` against a cluster. A reviewer can falsify this by inspecting `.github/workflows/`, the repository root, and `scripts/`.
+Operator → kubectl/helm → Cluster (mutable, untracked)
 
-The Argo CD `Application` manifest wiring this reconciliation is defined here and targets this repository and path:
+```
 
-https://github.com/dgeoghegan/gitops-release-controller/blob/main/argocd/applications/versioned-app-dev.yaml
-
-What to confirm in the Application manifest:
-- `repoURL` points to `gitops-release-controller`
-- `path` targets `charts/versioned-app`
-- The environment values consumed include `environments/dev/values.yaml`, which is the file changed in PR #24
-
-PR #24 (and the related rollback PR below) are intentionally retained as **reviewer artifacts** and are not subject to squashing or history rewrites.
+Git defines desired state via environment-specific `values.yaml` files. Argo CD continuously reconciles Kubernetes state to match. The cluster runtime has no write authority over its own desired state.
 
 ---
 
-## Section 3 — Rollback is the inverse operation
+## Change Lifecycle
 
-Open:  
-**PR #25 — Revert PR #24**  
-https://github.com/dgeoghegan/gitops-release-controller/pull/25
+All changes follow a single transformation model:
 
-Look for:  
-An exact inverse diff that restores the previous image tag in the same environment values file.
+- A deployment is a single commit modifying a version field (`image.tag`)
+- Merge triggers reconciliation via Argo CD
+- Rollback is the inverse commit; no secondary rollback mechanism exists or is required
 
-PR #25 was generated using GitHub’s **Revert** button and was not manually edited.
+**PR #24** — forward deployment via single-field state transition  
+**PR #25** — rollback via exact inverse commit, generated by GitHub Revert with no manual edits  
 
-Rollback works by producing a new PR with the opposite diff. There is no special rollback mechanism beyond Git history.
-
-This validates:  
-Rollback is a trivial, reviewable Git operation with no hidden state.
+Both PRs are retained as immutable reviewer artifacts and are not subject to squashing or history rewrite.
 
 ---
 
-## Section 4 — How PR #24 was created (optional)
+## Enforcement Model
 
-PR #24 was generated by a constrained GitHub Actions workflow that:
+The single-write-path constraint is enforced across multiple layers:
 
-- Accepts an environment and image tag (or SHA)
-- Edits only the relevant environment `values.yaml`
-- Opens a PR for review
-
-The workflow scope is constrained to editing environment `values.yaml` files via a fixed path and commit template.
-
-Manual edits to environment values are allowed by design; such edits are still Git commits to `gitops-release-controller`. The workflow exists to standardize and audit common changes.
-
-Removing or disabling this workflow would not change deploy or rollback semantics; it affects only how PRs are authored.
-
-Workflow run and definition:
-
-- Workflow (runs):  
-  https://github.com/dgeoghegan/gitops-release-controller/actions/workflows/cannon-deploy.yaml
-
-- Workflow source file:  
-  https://github.com/dgeoghegan/gitops-release-controller/blob/main/.github/workflows/cannon-deploy.yaml
+- **CI (GitHub Actions):** workflows are restricted to Git mutation only; no cluster write operations
+- **CD (Argo CD):** cluster state sourced exclusively from Git, continuously reconciled
+- **IAM / RBAC:** runtime access scoped to prevent ad-hoc mutation outside reconciliation control
+- **Repository structure:** environment state isolated to declarative configuration files with no procedural deployment entrypoints
 
 ---
 
-## Section 5 — Execution
+## Failure and Recovery Behavior
 
-If you choose to execute this project end-to-end, you will need:
-- AWS credentials
-- A GitHub fork
-- Approximately 20–40 minutes
-
-Execution instructions are documented here:
-
-https://github.com/dgeoghegan/gitops-release-controller/blob/main/SETUP_GUIDE.md
-
-Execution demonstrates end-to-end reconciliation timing and runtime behavior, but does not change the deploy or rollback mechanism shown above.
+- If Argo CD becomes unavailable, cluster state remains at the last successfully reconciled commit; no divergence occurs
+- If Git becomes unavailable, no new state transitions are possible; existing cluster state remains stable
+- Total cluster loss is recoverable by reprovisioning infrastructure and pointing Argo CD at the same repository; recovery time is bounded by EKS provisioning, not configuration reconstruction
+- System correctness is defined as convergence between Git state and cluster state, not execution success
 
 ---
 
-## Section 6 — What is demonstrated
+## Bootstrap Boundary
 
-- **PR #24** → Environment change via a single Git diff → `values.yaml`
-- **PR #25** → Rollback via inverse Git diff → GitHub revert
-- **Argo CD Application** → Continuous reconciliation from Git → `argocd/applications/versioned-app-dev.yaml`
+Bootstrap initializes the environment required to run the GitOps control loop. It is not deployment logic.
 
-This is the complete deploy and rollback mechanism used by this demo.
+Bootstrap sequence:
+- Validates AWS identity and EKS cluster availability
+- Waits for control plane and node readiness before applying the CD layer
+- Installs and configures AWS Load Balancer Controller and Argo CD
+- Verifies Kubernetes authorization before proceeding
+- Blocks progression if any control-plane or reconciliation dependency is not ready
 
-**Out of scope:** canary deploys, multi-cluster promotion, admission control, OPA/Gatekeeper, policy enforcement, and runtime mutation controls.
+Bootstrap produces the surface onto which GitOps operates. The two layers are explicitly decoupled: reprovisioning bootstrap does not alter application release state.
+
+---
+
+## Execution
+
+End-to-end execution requires AWS credentials, a GitHub fork, and approximately 20–40 minutes. It demonstrates reconciliation timing and runtime behavior but does not change the control mechanism described above.
+
+See `SETUP_GUIDE.md`.
+
+---
+
+## Scope
+
+This system demonstrates a constrained deployment architecture where state mutation reduces to a single Git-based interface and runtime systems are treated as projections of declarative intent.
+
+The following patterns are intentionally out of scope:
+
+- canary deployments
+- multi-cluster promotion
+- policy-as-code enforcement
+- runtime mutation controls
+
+These are deferred because they depend on the stability of the underlying convergence primitive.
