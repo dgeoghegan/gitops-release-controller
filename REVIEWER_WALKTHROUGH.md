@@ -1,17 +1,21 @@
 # GitOps Release Management
 
-Deployment is not an execution process. It is a state transition represented by a Git diff.
-
-This system implements a strict Git-to-cluster reconciliation loop where runtime state is a projection of repository state, not a mutable control surface. The enforced consequence is that Git is the only valid origin of state change.
+I built this to understand GitOps properly: what the control model actually means in practice, where the constraints come from, and what it looks like when git is the primary origin of state change. This is a working implementation, not a production system. Known simplifications are documented below.
 
 Last validated: **2026-02-03** — PR #24 merged, Argo CD reconciled, application version observed  
 (anchored to the merge of https://github.com/dgeoghegan/gitops-release-controller/pull/24)
 
 ---
 
+## Scope and Intent
+
+This is a controlled model of a GitOps deployment workflow. Certain security and operational controls are intentionally simplified for portability and reproducibility. The focus is on control flow, invariants, and failure behavior rather than full operational hardening.
+
+---
+
 ## System Roles
 
-This system is composed of three repositories, each responsible for a distinct layer of the control loop:
+Three repositories, each responsible for a distinct layer of the control loop:
 
 - **gitops-infra**
   - https://github.com/dgeoghegan/gitops-infra
@@ -22,7 +26,7 @@ This system is composed of three repositories, each responsible for a distinct l
 - **gitops-release-controller**
   - https://github.com/dgeoghegan/gitops-release-controller
   - Implements GitOps promotion logic via PR-driven environment updates
-  - Acts as the deployment control plane (decides what version each environment should run)
+  - Acts as the deployment control plane, deciding what version each environment should run
   - All environment state transitions are expressed as commits here
 
 - **versioned-app**
@@ -31,19 +35,15 @@ This system is composed of three repositories, each responsible for a distinct l
   - Produces container images via CI on commits and tags
   - Triggers deployment workflows by emitting image versions consumed by the controller
 
-Together, these form a strict separation between:
-- infrastructure provisioning (infra repo)
-- deployment decision logic (controller repo)
-- application artifact generation (app repo)
+Together, these enforce separation between infrastructure provisioning (infra repo), deployment decision logic (controller repo), and application artifact generation (app repo).
 
 ---
 
 ## System Invariants
 
-- All environment state is declared exclusively in Git-tracked configuration under `charts/versioned-app/environments/` (in `gitops-release-controller`)
-- Any change to cluster state must originate as a Git commit modifying declarative environment values (controller repo)
-- No supported path exists for direct runtime mutation via `kubectl`, `helm`, or ad-hoc cluster edits
-- Rollback is identical in mechanism to forward deployment: a Git revert producing a new desired state snapshot
+- All environment state is declared exclusively in git-tracked configuration under `charts/versioned-app/environments/` in `gitops-release-controller`
+- The designed path for state change is git commits; there is no supported workflow for direct cluster mutation outside reconciliation
+- Rollback is identical in mechanism to forward deployment: a git revert producing a new desired state that Argo CD reconciles
 
 ---
 
@@ -51,11 +51,11 @@ Together, these form a strict separation between:
 
 ```
 
-Git (desired state)
+git (desired state)
 ↓
 Argo CD (continuous reconciliation)
 ↓
-Kubernetes (projection of Git state)
+Kubernetes (projection of git state)
 
 ```
 
@@ -67,7 +67,9 @@ Operator → kubectl/helm → Cluster (mutable, untracked)
 
 ```
 
-Git defines desired state via environment-specific `values.yaml` files in the **gitops-release-controller** repository. Argo CD continuously reconciles Kubernetes state to match. The cluster runtime has no write authority over its own desired state.
+git defines desired state via environment-specific `values.yaml` files in the **gitops-release-controller** repository. Argo CD continuously reconciles Kubernetes state to match. The cluster does not participate in defining its own desired state.
+
+Observability is not part of this implementation. Argo CD UI and CLI inspection are the intended mechanism for state visibility.
 
 ---
 
@@ -78,6 +80,8 @@ All changes follow a single transformation model:
 - A deployment is a single commit modifying a version field (`image.tag`)
 - Merge triggers reconciliation via Argo CD
 - Rollback is the inverse commit; no secondary rollback mechanism exists or is required
+- Environment promotion order (dev → staging → prod) is documented but not mechanically enforced by the controller
+- Image tag existence in ECR is not validated prior to deployment PR creation; tag format is validated but registry state is not checked
 
 **PR #24** — forward deployment via single-field state transition  
 https://github.com/dgeoghegan/gitops-release-controller/pull/24
@@ -85,28 +89,28 @@ https://github.com/dgeoghegan/gitops-release-controller/pull/24
 **PR #25** — rollback via exact inverse commit, generated by GitHub Revert with no manual edits  
 https://github.com/dgeoghegan/gitops-release-controller/pull/25
 
-
 Both PRs are retained as immutable reviewer artifacts and are not subject to squashing or history rewrite.
 
 ---
 
 ## Enforcement Model
 
-The single-write-path constraint is enforced across multiple layers:
+The single-write-path constraint is implemented across multiple layers:
 
+- **Branch protection (required dependency):** the system assumes branch protection is configured on `main`, preventing direct pushes and requiring all changes to flow through PRs; without this, the single-write-path constraint does not hold
 - **CI (GitHub Actions):** workflows in `versioned-app` produce images and trigger controller updates; no cluster write operations
-- **CD (Argo CD):** cluster state sourced exclusively from Git in `gitops-release-controller`, continuously reconciled
-- **IAM / RBAC:** runtime access scoped to prevent ad-hoc mutation outside reconciliation control
-- **Repository structure:** environment state isolated to declarative configuration files with no procedural deployment entrypoints
+- **CD (Argo CD):** cluster state is sourced exclusively from git in `gitops-release-controller` and continuously reconciled
+- **IAM / RBAC:** runtime access is scoped to prevent ad-hoc mutation outside reconciliation control
+- **Repository structure:** environment state is isolated to declarative configuration files with no procedural deployment entrypoints
 
 ---
 
 ## Failure and Recovery Behavior
 
 - If Argo CD becomes unavailable, cluster state remains at the last successfully reconciled commit; no divergence occurs
-- If Git becomes unavailable, no new state transitions are possible; existing cluster state remains stable
+- If git becomes unavailable, no new state transitions are possible; existing cluster state remains stable
 - Total cluster loss is recoverable by reprovisioning infrastructure via `gitops-infra` and pointing Argo CD at the same repository; recovery time is bounded by EKS provisioning, not configuration reconstruction
-- System correctness is defined as convergence between Git state and cluster state, not execution success
+- System correctness is defined as convergence between git state and cluster state, not execution success
 
 ---
 
@@ -121,7 +125,19 @@ Bootstrap sequence:
 - Verifies Kubernetes authorization before proceeding
 - Blocks progression if any control-plane or reconciliation dependency is not ready
 
-Bootstrap produces the surface onto which GitOps operates. The two layers are explicitly decoupled: reprovisioning bootstrap does not alter application release state.
+Bootstrap produces the surface onto which GitOps operates. Reprovisioning bootstrap does not alter application release state.
+
+---
+
+## Known Simplifications
+
+The following are intentional scope reductions, not design oversights:
+
+- Single NAT gateway (cost simplification; introduces AZ-level outbound dependency)
+- EKS API endpoint is publicly accessible without IP restriction
+- Third-party GitHub Actions are pinned by version tag rather than commit SHA
+- Cannon mutation script has no test suite
+- Image tag existence in ECR is not validated prior to deployment PR creation
 
 ---
 
